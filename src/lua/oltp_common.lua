@@ -512,7 +512,16 @@ end
 function check_reconnect()
    if sysbench.opt.reconnect > 0 then
       transactions = (transactions or 0) + 1
-      if transactions % sysbench.opt.reconnect == 0 then
+      
+      -- Spread reconnections across threads to avoid simultaneous connection spikes
+      -- Each thread gets a different offset so they reconnect at different times
+      -- Example: 4 threads with --reconnect=100 reconnect at 25, 50, 75, 100 intervals
+      
+      local threads = sysbench.opt.threads or 1
+      local thread_offset = math.floor((sysbench.tid * sysbench.opt.reconnect) / threads)
+      local adjusted_transactions = transactions + thread_offset
+      
+      if adjusted_transactions % sysbench.opt.reconnect == 0 then
          close_statements()
          con:reconnect()
          prepare_statements()
