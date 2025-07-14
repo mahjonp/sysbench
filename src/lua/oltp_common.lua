@@ -504,8 +504,28 @@ function sysbench.hooks.before_restart_event(errdesc)
       errdesc.sql_errno == 2006 or -- CR_SERVER_GONE_ERROR
       errdesc.sql_errno == 2011    -- CR_TCP_CONNECTION
    then
+      -- Enhanced error handling for TiDB replica changes
+      -- Close statements first to avoid issues with broken connection
       close_statements()
-      prepare_statements()
+      
+      -- Reconnect the database connection to handle server changes
+      local success, err = pcall(function() con:reconnect() end)
+      if not success then
+         -- If reconnect fails, log but continue - sysbench will retry
+         print("Warning: Reconnection failed during error recovery: " .. tostring(err))
+      end
+      
+      -- Re-prepare all statements with the new connection
+      -- Use pcall to handle any remaining issues during statement preparation
+      local prep_success, prep_err = pcall(prepare_statements)
+      if not prep_success then
+         print("Warning: Statement preparation failed after reconnect: " .. tostring(prep_err))
+         -- Try one more time - sometimes it takes a moment for the connection to stabilize
+         pcall(function() 
+            con:reconnect()
+            prepare_statements()
+         end)
+      end
    end
 end
 
